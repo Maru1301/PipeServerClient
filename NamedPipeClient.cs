@@ -74,12 +74,20 @@ class NamedPipeClient
             ]
         };
 
+        afterConMenu.Options.ForEach(option =>
+        {
+            if (option is FunctionOption functionOption)
+            {
+                functionOption.AfterFuncSubMenu = afterConMenu;
+            }
+        });
+
         IOption firstOption = CreateFirstOption(vpnList, combinedPath, afterConMenu);
 
         var menu = new Menu()
         {
             Name = "==ValhiemServer==",
-            Options = 
+            Options =
             [
                 firstOption,
                 new FunctionOption()
@@ -104,7 +112,7 @@ class NamedPipeClient
             var ops = vpnList.Select(vpn => new FunctionOption()
             {
                 Name = vpn,
-                Func = (object? o) => GetNetworkStream(combinedPath),
+                Func = (object? o) => GetNetworkStream(combinedPath, vpn),
                 AfterFuncSubMenu = afterConMenu
             }).ToList();
 
@@ -144,11 +152,32 @@ class NamedPipeClient
 
     private static NetworkStream GetNetworkStream(string combinedPath)
     {
+        return GetNetworkStream(combinedPath, string.Empty);
+    }
+
+    private static NetworkStream GetNetworkStream(string combinedPath, string ip)
+    {
         Console.Clear();
 
         bool isConnect = false;
+        var regex = new Regex("^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$");
 
         TcpClient client;
+
+        if (!string.IsNullOrEmpty(ip))
+        {
+            if (!regex.IsMatch(ip))
+            {
+                Console.WriteLine("Wrong ip format!");
+            }
+
+            client = new TcpClient(ip, 5000); // Server's VPN IP address
+
+            NetworkStream stream = client.GetStream();
+
+            return stream;
+        }
+
         while (!isConnect)
         {
             try
@@ -157,7 +186,6 @@ class NamedPipeClient
                 var input = Console.ReadLine();
 
                 if (string.IsNullOrEmpty(input)) continue;
-                var regex = new Regex("^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$");
 
                 if (!regex.IsMatch(input))
                 {
@@ -166,7 +194,7 @@ class NamedPipeClient
 
                 // Connect to the server using its VPN IP address and port
                 client = new TcpClient(input, 5000); // Server's VPN IP address
-                
+
                 NetworkStream stream = client.GetStream();
 
                 isConnect = true;
@@ -184,25 +212,31 @@ class NamedPipeClient
         return null;
     }
 
-    private static void Start(NetworkStream stream)
+    private static NetworkStream Start(NetworkStream stream)
     {
         // Send a command to start the app
         var message = "start";
         Task.Run(() => SendCommand(stream, message));
+
+        return stream;
     }
 
-    private static void Check(NetworkStream stream)
+    private static NetworkStream Check(NetworkStream stream)
     {
         // Send a command to start the app
         var message = "check";
         Task.Run(() => SendCommand(stream, message));
+
+        return stream;
     }
 
-    private static void Stop(NetworkStream stream)
+    private static NetworkStream Stop(NetworkStream stream)
     {
         // Send a command to start the app
         var message = "stop";
         Task.Run(() => SendCommand(stream, message));
+
+        return stream;
     }
 
     private static async Task SendCommand(NetworkStream stream, string message)
