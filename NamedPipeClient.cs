@@ -21,15 +21,18 @@ class NamedPipeClient
     {
         FileStream fileStream;
         string docPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        string directoryName = "M4Virus";
         string textFileName = "VpnIps.txt";
-        var combinedPath = Path.Combine(docPath, textFileName);
+        var directoryPath = Path.Combine(docPath, directoryName);
+        var combinedPath = Path.Combine(directoryPath, textFileName);
         if (!File.Exists(combinedPath))
         {
+            Directory.CreateDirectory(directoryPath);
             fileStream = File.Create(combinedPath);
         }
         else
         {
-            fileStream = new FileStream(textFileName, FileMode.Open, FileAccess.ReadWrite);
+            fileStream = new FileStream(combinedPath, FileMode.Open, FileAccess.ReadWrite);
         }
 
         var vpnList = new List<string>();
