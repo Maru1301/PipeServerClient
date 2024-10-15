@@ -3,6 +3,7 @@ using MenuVisualizer.Model;
 using MenuVisualizer.Model.Interface;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.RegularExpressions;
 
 class NamedPipeClient
 {
@@ -143,6 +144,8 @@ class NamedPipeClient
 
     private static NetworkStream GetNetworkStream(string combinedPath)
     {
+        Console.Clear();
+
         bool isConnect = false;
 
         TcpClient client;
@@ -150,11 +153,16 @@ class NamedPipeClient
         {
             try
             {
-                Console.Clear();
                 Console.WriteLine("Enter VPN IP");
                 var input = Console.ReadLine();
 
                 if (string.IsNullOrEmpty(input)) continue;
+                var regex = new Regex("^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$");
+
+                if (!regex.IsMatch(input))
+                {
+                    Console.WriteLine("Wrong ip format!");
+                }
 
                 // Connect to the server using its VPN IP address and port
                 client = new TcpClient(input, 5000); // Server's VPN IP address
