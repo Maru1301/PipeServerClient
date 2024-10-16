@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 
 class NamedPipeClient
 {
-    static void Main()
+    static async Task Main()
     {
         var menu = Intialize();
 
@@ -15,7 +15,7 @@ class NamedPipeClient
 
         manager.Construct(menu);
 
-        manager.Show();
+        await manager.ShowAsync();
     }
 
     private static Menu Intialize()
@@ -55,17 +55,17 @@ class NamedPipeClient
                 new FunctionOption()
                 {
                     Name = "Start Server",
-                    Func = (NetworkStream stream) => Start(stream),
+                    Func = async (object? obj) => await Start(obj),
                 },
                 new FunctionOption()
                 {
                     Name = "Check Server",
-                    Func = (NetworkStream stream) => Check(stream),
+                    Func = async (object? obj) => await Check(obj),
                 },
                 new FunctionOption()
                 {
                     Name = "Stop Server",
-                    Func = (NetworkStream stream) => Stop(stream),
+                    Func = async (object? obj) => await Stop(obj),
                 },
                 new SubMenuOption()
                 {
@@ -74,26 +74,22 @@ class NamedPipeClient
             ]
         };
 
-        afterConMenu.Options.ForEach(option =>
-        {
-            if (option is FunctionOption functionOption)
-            {
-                functionOption.AfterFuncSubMenu = afterConMenu;
-            }
-        });
-
         IOption firstOption = CreateFirstOption(vpnList, combinedPath, afterConMenu);
 
         var menu = new Menu()
         {
             Name = "==ValhiemServer==",
-            Options =
+            Options = 
             [
                 firstOption,
                 new FunctionOption()
                 {
                     Name = "Exit",
-                    Func = (object? o) => OptionDefault.Exit
+                    Func = async (object? o) =>  
+                    {
+                        await Task.Yield();
+                        return (object)OptionDefault.Exit; 
+                    }
                 }
             ]
         };
@@ -112,7 +108,7 @@ class NamedPipeClient
             var ops = vpnList.Select(vpn => new FunctionOption()
             {
                 Name = vpn,
-                Func = (object? o) => GetNetworkStream(combinedPath, vpn),
+                Func = async (object? o) => await GetNetworkStream(combinedPath),
                 AfterFuncSubMenu = afterConMenu
             }).ToList();
 
@@ -125,7 +121,7 @@ class NamedPipeClient
                     new FunctionOption()
                     {
                         Name = "Other Ip",
-                        Func = (object? o) => GetNetworkStream(combinedPath),
+                        Func = async (object? o) => await GetNetworkStream(combinedPath),
                         AfterFuncSubMenu = afterConMenu
                     }
                 ]
@@ -142,7 +138,7 @@ class NamedPipeClient
             option = new FunctionOption()
             {
                 Name = "Start Connection",
-                Func = (object? o) => GetNetworkStream(combinedPath),
+                Func = async (object? o) => await GetNetworkStream(combinedPath),
                 AfterFuncSubMenu = afterConMenu
             };
         }
@@ -150,42 +146,23 @@ class NamedPipeClient
         return option;
     }
 
-    private static NetworkStream GetNetworkStream(string combinedPath)
+    private static async Task<NetworkStream> GetNetworkStream(string combinedPath)
     {
-        return GetNetworkStream(combinedPath, string.Empty);
-    }
-
-    private static NetworkStream GetNetworkStream(string combinedPath, string ip)
-    {
+        await Task.Yield();
         Console.Clear();
 
         bool isConnect = false;
-        var regex = new Regex("^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$");
 
         TcpClient client;
-
-        if (!string.IsNullOrEmpty(ip))
-        {
-            if (!regex.IsMatch(ip))
-            {
-                Console.WriteLine("Wrong ip format!");
-            }
-
-            client = new TcpClient(ip, 5000); // Server's VPN IP address
-
-            NetworkStream stream = client.GetStream();
-
-            return stream;
-        }
-
         while (!isConnect)
         {
             try
             {
-                Console.WriteLine("Enter VPN IP");
+                Console.WriteLine("Enter Target IP");
                 var input = Console.ReadLine();
 
                 if (string.IsNullOrEmpty(input)) continue;
+                var regex = new Regex("^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$");
 
                 if (!regex.IsMatch(input))
                 {
@@ -194,12 +171,12 @@ class NamedPipeClient
 
                 // Connect to the server using its VPN IP address and port
                 client = new TcpClient(input, 5000); // Server's VPN IP address
-
+                
                 NetworkStream stream = client.GetStream();
 
                 isConnect = true;
                 using var outputFile = new StreamWriter(combinedPath);
-                outputFile.WriteLine(input); // Write input as text
+                outputFile.Write(input); // Write input as text
 
                 return stream;
             }
@@ -212,29 +189,32 @@ class NamedPipeClient
         return null;
     }
 
-    private static NetworkStream Start(NetworkStream stream)
+    private static async Task<NetworkStream> Start(object? obj)
     {
+        NetworkStream stream = (NetworkStream)obj!;
         // Send a command to start the app
         var message = "start";
-        Task.Run(() => SendCommand(stream, message));
+        await SendCommand(stream, message);
 
         return stream;
     }
 
-    private static NetworkStream Check(NetworkStream stream)
+    private static async Task<NetworkStream> Check(object? obj)
     {
+        NetworkStream stream = (NetworkStream)obj!;
         // Send a command to start the app
         var message = "check";
-        Task.Run(() => SendCommand(stream, message));
+        await SendCommand(stream, message);
 
         return stream;
     }
 
-    private static NetworkStream Stop(NetworkStream stream)
+    private static async Task<object?> Stop(object? obj)
     {
+        NetworkStream stream = (NetworkStream)obj!;
         // Send a command to start the app
         var message = "stop";
-        Task.Run(() => SendCommand(stream, message));
+        await SendCommand(stream, message);
 
         return stream;
     }
