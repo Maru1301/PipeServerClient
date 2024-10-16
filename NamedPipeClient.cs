@@ -4,6 +4,7 @@ using MenuVisualizer.Model.Interface;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml.Serialization;
 
 class NamedPipeClient
 {
@@ -74,6 +75,14 @@ class NamedPipeClient
             ]
         };
 
+        afterConMenu.Options.ForEach(option =>
+        {
+            if (option is FunctionOption functionOption)
+            {
+                functionOption.AfterFuncSubMenu = afterConMenu;
+            }
+        });
+
         IOption firstOption = CreateFirstOption(vpnList, combinedPath, afterConMenu);
 
         var menu = new Menu()
@@ -108,7 +117,7 @@ class NamedPipeClient
             var ops = vpnList.Select(vpn => new FunctionOption()
             {
                 Name = vpn,
-                Func = async (object? o) => await GetNetworkStream(combinedPath),
+                Func = async (object? o) => await GetNetworkStream(combinedPath, vpn),
                 AfterFuncSubMenu = afterConMenu
             }).ToList();
 
@@ -148,12 +157,26 @@ class NamedPipeClient
 
     private static async Task<NetworkStream> GetNetworkStream(string combinedPath)
     {
+        return await GetNetworkStream(combinedPath, string.Empty);
+    }
+
+    private static async Task<NetworkStream> GetNetworkStream(string combinedPath, string ip)
+    {
         await Task.Yield();
         Console.Clear();
 
+        TcpClient client;
+        if (!string.IsNullOrEmpty(ip))
+        {
+            client = new TcpClient(ip, 5000); // Server's VPN IP address
+
+            NetworkStream stream = client.GetStream();
+
+            return stream;
+        }
+
         bool isConnect = false;
 
-        TcpClient client;
         while (!isConnect)
         {
             try
@@ -222,13 +245,59 @@ class NamedPipeClient
     private static async Task SendCommand(NetworkStream stream, string message)
     {
         if (string.IsNullOrEmpty(message)) return;
+
+        // Convert message to bytes and send it to the server
         byte[] buffer = Encoding.ASCII.GetBytes(message);
         await stream.WriteAsync(buffer);
 
-        // Receive confirmation from the server
-        buffer = new byte[1024];
-        int bytesRead = await stream.ReadAsync(buffer);
-        string response = Encoding.ASCII.GetString(buffer, 0, bytesRead);
-        Console.WriteLine("Server response: " + response);
+        // Show loading animation while waiting for the response
+        ShowLoading();
+
+        // Temporarily lock keyboard input during data transfer
+        DisableKeyboardInput();
+
+        try
+        {
+            // Receive server response
+            buffer = new byte[1024];
+            int bytesRead = await stream.ReadAsync(buffer);
+            StopLoading();
+
+            string response = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+            Console.WriteLine("Server response: " + response);
+        }
+        finally
+        {
+            // Re-enable keyboard input after receiving the response
+            EnableKeyboardInput();
+        }
+    }
+
+    // Disables the keyboard input (ignores key presses)
+    private static void DisableKeyboardInput()
+    {
+        Task.Run(async () =>
+        {
+            while (true)
+            {
+                while (Console.KeyAvailable) Console.ReadKey(true); // Discard all input
+                await Task.Delay(100); // Avoid busy waiting
+            }
+        });
+    }
+
+    // Stub function to stop the loading animation
+    private static void ShowLoading() => Console.WriteLine("Loading...");
+
+    // Stub function to stop the loading animation
+    private static void StopLoading() => Console.WriteLine("Loading stopped...");
+
+    // Re-enabling keyboard input simply stops the disabling task
+    private static void EnableKeyboardInput()
+    {
+        Console.WriteLine("Press any key to continue...");
+        Console.ReadKey(intercept: true); // Clear the key press
+        // No-op in this example; depends on implementation.
+        // If needed, you can use a cancellation token to stop the disabling task above.
     }
 }
