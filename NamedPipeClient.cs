@@ -8,8 +8,8 @@ using System.Net.Sockets;
 
 class NamedPipeClient
 {
-    private readonly INetworkService networkService = new NetworkService();
-    private readonly IFileService fileService = new FileService();
+    private readonly INetworkService _networkService = new NetworkService();
+    private readonly IFileService _fileService = new FileService();
     public async Task Go()
     {
         var menu = Intialize();
@@ -23,9 +23,9 @@ class NamedPipeClient
 
     private Menu Intialize()
     {
-        var vpnList = fileService.ReadVpnIps();
+        var vpnList = _fileService.ReadVpnIps();
 
-        var afterConMenu = new Menu()
+        var serverCommandMenu = new Menu()
         {
             Name = "Server Command",
             Options =
@@ -62,22 +62,41 @@ class NamedPipeClient
                     Name = "Go Back",
                     Func = async (object? obj) => 
                     {
-                        await networkService.DisposeAsync();
+                        await _networkService.DisposeAsync();
                         return null;
                     }
                 }
             ]
         };
 
-        afterConMenu.Options.ForEach(option =>
+        serverCommandMenu.Options.ForEach(option =>
         {
             if (option is FunctionOption functionOption)
             {
-                functionOption.AfterFuncSubMenu = afterConMenu;
+                functionOption.AfterFuncSubMenu = serverCommandMenu;
             }
         });
 
-        IOption firstOption = CreateFirstOption(vpnList, afterConMenu);
+        var gameServerNamelist = _fileService.ReadGames();
+        var chooseGameServerMenu = new Menu()
+        {
+            Name = "Choose the game",
+            Options = [..gameServerNamelist.Select(name =>
+            {
+                return new FunctionOption()
+                {
+                    Name = name,
+                    Func = async (object? o) => 
+                    {
+                        await ChooseGameServer(name);
+                        return null;
+                    },
+                    AfterFuncSubMenu = serverCommandMenu
+                };
+            }).ToList()]
+        };
+
+        IOption firstOption = CreateFirstOption(vpnList, chooseGameServerMenu);
 
         var menu = new Menu()
         {
@@ -97,12 +116,12 @@ class NamedPipeClient
             ]
         };
 
-        ((FunctionOption)afterConMenu.Options.First(option => option.Name == "Go Back")).AfterFuncSubMenu = menu;
+        ((FunctionOption)serverCommandMenu.Options.First(option => option.Name == "Go Back")).AfterFuncSubMenu = menu;
 
         return menu;
     }
 
-    private IOption CreateFirstOption(List<string> vpnList,Menu afterConMenu)
+    private IOption CreateFirstOption(List<string> vpnList,Menu nextMenu)
     {
         IOption option;
 
@@ -112,7 +131,7 @@ class NamedPipeClient
             {
                 Name = vpn,
                 Func = async (object? o) => await ConnectServer(vpn),
-                AfterFuncSubMenu = afterConMenu
+                AfterFuncSubMenu = nextMenu
             }).ToList();
 
             var vpnIpMenu = new Menu()
@@ -125,7 +144,7 @@ class NamedPipeClient
                     {
                         Name = "Other Ip",
                         Func = async (object? o) => await ConnectServer(),
-                        AfterFuncSubMenu = afterConMenu
+                        AfterFuncSubMenu = nextMenu
                     }
                 ]
             };
@@ -142,7 +161,7 @@ class NamedPipeClient
             {
                 Name = "Start Connection",
                 Func = async (object? o) => await ConnectServer(),
-                AfterFuncSubMenu = afterConMenu
+                AfterFuncSubMenu = nextMenu
             };
         }
 
@@ -163,7 +182,7 @@ class NamedPipeClient
         {
             if (!string.IsNullOrEmpty(ip))
             {
-                return await networkService.ConnectAsync(ip);
+                return await _networkService.ConnectAsync(ip);
             }
         }
         catch (Exception)
@@ -190,8 +209,8 @@ class NamedPipeClient
                 // Connect to the server using its VPN IP address and port
                 if (!string.IsNullOrEmpty(input))
                 {
-                    var networkStream = await networkService.ConnectAsync(input);
-                    fileService.WriteVpnIp(input);
+                    var networkStream = await _networkService.ConnectAsync(input);
+                    _fileService.WriteVpnIp(input);
 
                     return networkStream;
                 }
@@ -202,6 +221,12 @@ class NamedPipeClient
                 Console.WriteLine("連線失敗");
             }
         }
+    }
+
+    private async Task ChooseGameServer(string gameServerName)
+    {
+        var message = $"set {gameServerName}";
+        await HandleSendCommandAsync(message);
     }
 
     private async Task Start()
@@ -225,7 +250,7 @@ class NamedPipeClient
     private async Task HandleSendCommandAsync(string message)
     {
         DisableKeyboardInput();
-        await networkService.SendCommandAsync(message);
+        await _networkService.SendCommandAsync(message);
         EnableKeyboardInput();
     }
 
