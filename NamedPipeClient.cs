@@ -2,12 +2,15 @@
 using MenuVisualizer.Model;
 using MenuVisualizer.Model.Interface;
 using PipeServerClient;
-using System.Text;
-using System.Text.RegularExpressions;
+using PipeServerClient.Service;
+using PipeServerClient.Service.Interface;
+using System.Net.Sockets;
 
 class NamedPipeClient
 {
-    static async Task Main()
+    private readonly INetworkService networkService = new NetworkService();
+    private readonly IFileService fileService = new FileService();
+    public async Task Go()
     {
         var menu = Intialize();
 
@@ -18,34 +21,9 @@ class NamedPipeClient
         await manager.ShowAsync();
     }
 
-    private static Menu Intialize()
+    private Menu Intialize()
     {
-        FileStream fileStream;
-        string docPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        string directoryName = "M4Virus";
-        string textFileName = "VpnIps.txt";
-        var directoryPath = Path.Combine(docPath, directoryName);
-        var combinedPath = Path.Combine(directoryPath, textFileName);
-        if (!File.Exists(combinedPath))
-        {
-            Directory.CreateDirectory(directoryPath);
-            fileStream = File.Create(combinedPath);
-        }
-        else
-        {
-            fileStream = new FileStream(combinedPath, FileMode.Open, FileAccess.ReadWrite);
-        }
-
-        var vpnList = new List<string>();
-        const int BufferSize = 128;
-        using (var streamReader = new StreamReader(fileStream, Encoding.UTF8, true, BufferSize))
-        {
-            string? line;
-            while ((line = streamReader.ReadLine()) != null)
-            {
-                vpnList.Add(line);
-            }
-        }
+        var vpnList = fileService.ReadVpnIps();
 
         var afterConMenu = new Menu()
         {
@@ -55,27 +33,36 @@ class NamedPipeClient
                 new FunctionOption()
                 {
                     Name = "Start Server",
-                    Func = async (object? obj) => await Start(obj),
+                    Func = async (object? obj) => 
+                    {
+                        await Start();
+                        return null;
+                    }
                 },
                 new FunctionOption()
                 {
                     Name = "Check Server",
-                    Func = async (object? obj) => await Check(obj),
+                    Func = async (object? obj) => 
+                    {
+                        await Check();
+                        return null;
+                    }
                 },
                 new FunctionOption()
                 {
                     Name = "Stop Server",
-                    Func = async (object? obj) => await Stop(obj),
+                    Func = async (object? obj) =>
+                    {
+                        await Stop();
+                        return null;
+                    }
                 },
                 new FunctionOption()
                 {
                     Name = "Go Back",
                     Func = async (object? obj) => 
                     {
-                        await Task.Yield();
-                        TcpClientManager tcpClientManager = (TcpClientManager)obj!;
-                        tcpClientManager.Disconnect();
-
+                        await networkService.DisposeAsync();
                         return null;
                     }
                 }
@@ -90,7 +77,7 @@ class NamedPipeClient
             }
         });
 
-        IOption firstOption = CreateFirstOption(vpnList, combinedPath, afterConMenu);
+        IOption firstOption = CreateFirstOption(vpnList, afterConMenu);
 
         var menu = new Menu()
         {
@@ -115,7 +102,7 @@ class NamedPipeClient
         return menu;
     }
 
-    private static IOption CreateFirstOption(List<string> vpnList, string combinedPath, Menu afterConMenu)
+    private IOption CreateFirstOption(List<string> vpnList,Menu afterConMenu)
     {
         IOption option;
 
@@ -124,7 +111,7 @@ class NamedPipeClient
             var ops = vpnList.Select(vpn => new FunctionOption()
             {
                 Name = vpn,
-                Func = async (object? o) => await GetNetworkStream(combinedPath, vpn),
+                Func = async (object? o) => await ConnectServer(vpn),
                 AfterFuncSubMenu = afterConMenu
             }).ToList();
 
@@ -137,7 +124,7 @@ class NamedPipeClient
                     new FunctionOption()
                     {
                         Name = "Other Ip",
-                        Func = async (object? o) => await GetNetworkStream(combinedPath),
+                        Func = async (object? o) => await ConnectServer(),
                         AfterFuncSubMenu = afterConMenu
                     }
                 ]
@@ -154,7 +141,7 @@ class NamedPipeClient
             option = new FunctionOption()
             {
                 Name = "Start Connection",
-                Func = async (object? o) => await GetNetworkStream(combinedPath),
+                Func = async (object? o) => await ConnectServer(),
                 AfterFuncSubMenu = afterConMenu
             };
         }
@@ -162,29 +149,28 @@ class NamedPipeClient
         return option;
     }
 
-    private static async Task<TcpClientManager> GetNetworkStream(string combinedPath)
+    private async Task<NetworkStream> ConnectServer()
     {
-        return await GetNetworkStream(combinedPath, string.Empty);
+        return await ConnectServer(string.Empty);
     }
 
-    private static async Task<TcpClientManager> GetNetworkStream(string combinedPath, string ip)
+    private async Task<NetworkStream> ConnectServer(string ip)
     {
         await Task.Yield();
         Console.Clear();
 
-        if (!string.IsNullOrEmpty(ip))
+        try
         {
-            var clientManager = new TcpClientManager(ip);
-
-            if (await clientManager.ConnectAsync())
+            if (!string.IsNullOrEmpty(ip))
             {
-                return clientManager;
-            }
-            else
-            {
-                Console.WriteLine("連線失敗");
+                return await networkService.ConnectAsync(ip);
             }
         }
+        catch (Exception)
+        {
+            Console.WriteLine("連線失敗");
+        }
+        
 
         while (true)
         {
@@ -202,58 +188,45 @@ class NamedPipeClient
                 }
 
                 // Connect to the server using its VPN IP address and port
-                var clientManager = new TcpClientManager(ip);
-
-                if(await clientManager.ConnectAsync())
+                if (!string.IsNullOrEmpty(input))
                 {
-                    using var outputFile = new StreamWriter(combinedPath);
-                    outputFile.Write(input); // Write input as text
+                    var networkStream = await networkService.ConnectAsync(input);
+                    fileService.WriteVpnIp(input);
 
-                    return clientManager;
+                    return networkStream;
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine("給Maru看的:" + ex.Message);
+                Console.WriteLine("For Maru:" + ex.Message);
                 Console.WriteLine("連線失敗");
             }
         }
     }
 
-    private static async Task<TcpClientManager> Start(object? obj)
+    private async Task Start()
     {
-        TcpClientManager tcpClientManager = (TcpClientManager)obj!;
-        
         var message = "start";
-        DisableKeyboardInput();
-        await tcpClientManager.SendCommandAsync(message);
-        EnableKeyboardInput();
-
-        return tcpClientManager;
+        await HandleSendCommandAsync(message);
     }
 
-    private static async Task<TcpClientManager> Check(object? obj)
+    private async Task Check()
     {
-        TcpClientManager tcpClientManager = (TcpClientManager)obj!;
-        
         var message = "check";
-        DisableKeyboardInput();
-        await tcpClientManager.SendCommandAsync(message);
-        EnableKeyboardInput();
-
-        return tcpClientManager;
+        await HandleSendCommandAsync(message);
     }
 
-    private static async Task<TcpClientManager> Stop(object? obj)
+    private async Task Stop()
     {
-        TcpClientManager tcpClientManager = (TcpClientManager)obj!;
-
         var message = "stop";
-        DisableKeyboardInput();
-        await tcpClientManager.SendCommandAsync(message);
-        EnableKeyboardInput();
+        await HandleSendCommandAsync(message);
+    }
 
-        return tcpClientManager;
+    private async Task HandleSendCommandAsync(string message)
+    {
+        DisableKeyboardInput();
+        await networkService.SendCommandAsync(message);
+        EnableKeyboardInput();
     }
 
     // Disables the keyboard input (ignores key presses)
